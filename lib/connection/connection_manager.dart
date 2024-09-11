@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:logger/logger.dart';
 import 'package:universal_io/io.dart';
+import 'package:xempi/data/logging_settings.dart';
 import 'package:xempi/helpers/message_helper.dart';
 import 'package:xml/xml.dart';
 
@@ -15,26 +17,72 @@ import '../socket_api/stub_implementation.dart'
 class XempiConnectionManager {
   XempiAccountSettings accountSettings;
   XempiConnectionSettings connectionSettings;
+  XempiLoggingSettings loggingSettings;
   Function(XempiConnectionManager)? onConnectionAvailable;
-  late XMPPSocket _socket;
+  XMPPSocket? _socket;
 
+  Logger logger = Logger(
+    filter: null,
+    printer: PrettyPrinter(
+      colors: true,
+      printEmojis: false,
+      dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
+    ),
+    output: null,
+  );
+
+  /// [StreamController] to broadcast all incoming messages through
+  /// the open connection.
   StreamController<XmlDocument> inboundMessages =
       StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all outgoing messages through
+  /// the open connection.
   StreamController<XmlDocument> outboundMessages =
       StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all incoming 'iq' stanzas through
+  /// the open connection.
   StreamController<XmlDocument> inboundIqStanzas =
+      StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all outgoing 'iq' stanzas through
+  /// the open connection.
+  StreamController<XmlDocument> outboundIqStanzas =
+      StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all incoming 'presence' stanzas through
+  /// the open connection.
+  StreamController<XmlDocument> inboundPresenceStanzas =
+      StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all outgoing 'presence' stanzas through
+  /// the open connection.
+  StreamController<XmlDocument> outboundPresenceStanzas =
+      StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all incoming 'message' stanzas through
+  /// the open connection.
+  StreamController<XmlDocument> inboundMessageStanzas =
+      StreamController<XmlDocument>.broadcast();
+
+  /// [StreamController] to broadcast all outgoing 'message' stanzas through
+  /// the open connection.
+  StreamController<XmlDocument> outboundMessageStanzas =
       StreamController<XmlDocument>.broadcast();
 
   XempiConnectionManager({
     required this.accountSettings,
     required this.connectionSettings,
     this.onConnectionAvailable,
+    this.loggingSettings = const XempiLoggingSettings.all(),
   });
 
   void connect() async {
     XMPPSocket socket = XMPPSocket();
     debugPrint('[Xempi] Connecting to socket...');
 
+    // TODO: Add specific settings for the web version
     _socket = await socket.connect(
       connectionSettings.host,
       connectionSettings.port,
@@ -42,13 +90,44 @@ class XempiConnectionManager {
 
     inboundMessages.stream.listen(_onInboundMessage);
 
-    socket.listen(_handleSocketResponse, onDone: () {
-      debugPrint('Socket done');
-    }, onError: (Object error, StackTrace stackTrace) {
-      debugPrint('On error');
-    });
+    inboundPresenceStanzas.stream.listen(_onInboundPressenceStanza);
+    outboundPresenceStanzas.stream.listen(_onOutboundPressenceStanza);
+    inboundMessageStanzas.stream.listen(_onInboundMessageStanza);
+    outboundMessageStanzas.stream.listen(_onOutboundMessageStanza);
+    inboundIqStanzas.stream.listen(_onInboundIqStanza);
+    outboundIqStanzas.stream.listen(_onOutboundIqStanza);
+
+    socket.listen(
+      _handleSocketResponse,
+      onDone: () {
+        // TODO: Enable callback to be defined for socket end
+        debugPrint('Socket done');
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        // TODO: Enable callback to be defined for socket error
+        // TODO: Also add callback for XMPP error messages
+        // Consider 4.9.1.1.  Stream Errors Are Unrecoverable
+        debugPrint('On error');
+      },
+      cancelOnError: false,
+    );
 
     sendOpeningMessage();
+  }
+
+  void disconnect() {
+    inboundMessages.close();
+
+    inboundPresenceStanzas.close();
+    outboundPresenceStanzas.close();
+    inboundMessageStanzas.close();
+    outboundMessageStanzas.close();
+    inboundIqStanzas.close();
+    outboundIqStanzas.close();
+
+    // TODO: Close stream with pretty message
+    _socket?.close();
+    _socket = null;
   }
 
   /// Called every time the server sends an XML message through
@@ -58,6 +137,16 @@ class XempiConnectionManager {
     // its respective stream.
     if (document.rootElement.name.toString() == 'iq') {
       inboundIqStanzas.add(document);
+    }
+    // Check if document contains an 'presence' XmlElement and adds it to
+    // its respective stream.
+    if (document.rootElement.name.toString() == 'presence') {
+      inboundPresenceStanzas.add(document);
+    }
+    // Check if document contains an 'message' XmlElement and adds it to
+    // its respective stream.
+    if (document.rootElement.name.toString() == 'message') {
+      inboundMessageStanzas.add(document);
     }
 
     // Check if it is an opening message
@@ -74,10 +163,12 @@ class XempiConnectionManager {
       }
     }
 
+    // Upgrades socket to secure socket if TLS negotiation is authorized
+    // by a "proceed" message.
     if (document.rootElement.name.toString() == 'proceed' &&
         document.rootElement.getAttribute('xmlns') ==
             'urn:ietf:params:xml:ns:xmpp-tls') {
-      SecureSocket? secureSocket = await _socket.secure();
+      SecureSocket? secureSocket = await _socket?.secure();
       if (secureSocket != null) {
         secureSocket
             .cast<List<int>>()
@@ -93,8 +184,6 @@ class XempiConnectionManager {
       // Check all the stream features reported from the server
       // and act accordingly.
       document.firstChild!.childElements.toList().forEach((XmlElement element) {
-        debugPrint('ELEMENT NAME');
-        debugPrint(element.name.toString());
         // If starttls is required, acknowledge and start process
         if (element.name.toString() == 'starttls' &&
             element.getAttribute('xmlns') ==
@@ -103,7 +192,7 @@ class XempiConnectionManager {
             XmlDocument starttlsResponse =
                 XempiMessageHelper.buildStartTlsResponse();
             debugPrint(starttlsResponse.toXmlString());
-            _socket.write(starttlsResponse.toXmlString());
+            _socket?.write(starttlsResponse.toXmlString());
           }
         }
 
@@ -157,27 +246,28 @@ class XempiConnectionManager {
       //  stream to be replaced upon success of the SASL negotiation).
       sendOpeningMessage();
     }
-    debugPrint('\n${document.toXmlString(pretty: true)}');
   }
 
+  /// Called everytime the XMPP socket receives
+  /// a new message.
   void _handleSocketResponse(String data) {
-    debugPrint('>> Message from socket:');
-    debugPrint(data);
-
+    // If the server closes the connection, a "</stream:stream>"
+    // closing tag is received through the socket.
     if (data == '</stream:stream>') {
       debugPrint('Connection ended');
       return;
     }
 
-    // Checks if the message closes the stream. The </stream:stream>
-    // is received when the server closes the XML message stream, usually
-    // in case of an error.
+    // Checks if the message closes the stream but also includes another message.
+    // The </stream:stream> is received when the server closes the XML
+    // message stream, usually in case of an error.
     // This function removes the trailing </stream:stream> so it can be
     // properly parsed.
     // It is important to handle errors or interruptions here anyway.
     if (data.endsWith('</stream:stream>')) {
       data = data.substring(0, data.length - 16);
-      // Handle XMPP errors reported by the server here ↯
+      // TODO: Handle XMPP errors reported by the server here ↯
+      // Or maybe they should be managed in the inbound messages callback?
     }
 
     // Adds </stream:stream> at the end of the initial message so it can be
@@ -191,22 +281,29 @@ class XempiConnectionManager {
       data += '</stream:stream>';
     }
 
-    debugPrint('>>> Mensaje parseado:');
     XmlDocument document = XmlDocument.parse(data);
     inboundMessages.add(document);
   }
 
   writeDocumentToSocket(XmlDocument document) {
-    debugPrint('>> Written to server:');
-    debugPrint(document.toXmlString(pretty: true));
     outboundMessages.add(document);
-    _socket.write(document.toXmlString());
+
+    if (document.rootElement.name.toString() == 'iq') {
+      outboundIqStanzas.add(document);
+    }
+    if (document.rootElement.name.toString() == 'presence') {
+      outboundPresenceStanzas.add(document);
+    }
+    if (document.rootElement.name.toString() == 'message') {
+      outboundMessageStanzas.add(document);
+    }
+    _socket?.write(document.toXmlString());
   }
 
   writeStringToSocket(String document) {
-    debugPrint('>> Written to server:');
+    debugPrint('[Xempi] String written to server:');
     debugPrint(document);
-    _socket.write(document);
+    _socket?.write(document);
   }
 
   sendOpeningMessage() {
@@ -258,4 +355,69 @@ class XempiConnectionManager {
     }
     throw TimeoutException('An adequate iq response could not be received');
   }
+
+  void _onInboundPressenceStanza(XmlDocument document) {
+    const String name = 'presence';
+    if (document.rootElement.name.toString() == name) {
+      if (loggingSettings.inboundPresenceStanzas) {
+        logMessage(document, header: '[➡️ Inbound presence Stanza]');
+      }
+    }
+  }
+
+  void _onOutboundPressenceStanza(XmlDocument document) {
+    const String name = 'presence';
+    if (document.rootElement.name.toString() == name) {
+      if (loggingSettings.outboundPresenceStanzas) {
+        logMessage(document, header: '[⬅️ Outbound presence Stanza]');
+      }
+    }
+  }
+
+  void _onInboundMessageStanza(XmlDocument document) {
+    const String name = 'message';
+    if (document.rootElement.name.toString() == name) {
+      if (loggingSettings.inboundMessageStanzas) {
+        logMessage(document, header: '[➡️ Inbound message Stanza]');
+      }
+    }
+  }
+
+  void _onOutboundMessageStanza(XmlDocument document) {
+    const String name = 'message';
+    if (document.rootElement.name.toString() == name) {
+      if (loggingSettings.outboundMessageStanzas) {
+        logMessage(document, header: '[⬅️ Outbound message Stanza]');
+      }
+    }
+  }
+
+  void _onInboundIqStanza(XmlDocument document) {
+    const String name = 'iq';
+    if (document.rootElement.name.toString() == name) {
+      if (loggingSettings.inboundIqStanzas) {
+        logMessage(document, header: '[➡️ Inbound iq Stanza]');
+      }
+    }
+  }
+
+  void _onOutboundIqStanza(XmlDocument document) {
+    const String name = 'iq';
+    if (document.rootElement.name.toString() == name) {
+      if (loggingSettings.outboundIqStanzas) {
+        logMessage(document, header: '[⬅️ Outbound iq Stanza]');
+      }
+    }
+  }
+
+  void logMessage(XmlDocument document, {String header = ''}) {
+    String message = document.toXmlString(pretty: true);
+    if (header.isNotEmpty) {
+      message = '$header\n$message';
+    }
+    logger.d(message);
+  }
 }
+
+// TODO: Add callbacks for the different listeners
+// TODO: Call logMessage in the listeners according to the loggingSettings

@@ -1,0 +1,480 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - lib/connection/connection_manager.dart</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">lib/connection</a> - connection_manager.dart<span style="font-size: 80%;"> (source / <a href="connection_manager.dart.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">151</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2024-09-05 09:10:58</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntryHi">-</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : import 'dart:async';</a>
+<span class="lineNum">       2 </span>            : import 'dart:convert';
+<span class="lineNum">       3 </span>            : 
+<span class="lineNum">       4 </span>            : import 'package:flutter/foundation.dart';
+<span class="lineNum">       5 </span>            : import 'package:logger/logger.dart';
+<span class="lineNum">       6 </span>            : import 'package:universal_io/io.dart';
+<span class="lineNum">       7 </span>            : import 'package:xempi/data/logging_settings.dart';
+<span class="lineNum">       8 </span>            : import 'package:xempi/helpers/message_helper.dart';
+<span class="lineNum">       9 </span>            : import 'package:xml/xml.dart';
+<span class="lineNum">      10 </span>            : 
+<span class="lineNum">      11 </span>            : import '../data/account_settings.dart';
+<span class="lineNum">      12 </span>            : import '../data/connection_settings.dart';
+<span class="lineNum">      13 </span>            : import '../socket_api/stub_implementation.dart'
+<span class="lineNum">      14 </span>            :     if (dart.library.io) '../socket_api/socket_implementation.dart'
+<span class="lineNum">      15 </span>            :     if (dart.library.html) '../socket_api/websocket_implementation.dart';
+<span class="lineNum">      16 </span>            : 
+<span class="lineNum">      17 </span>            : class XempiConnectionManager {
+<span class="lineNum">      18 </span>            :   XempiAccountSettings accountSettings;
+<span class="lineNum">      19 </span>            :   XempiConnectionSettings connectionSettings;
+<span class="lineNum">      20 </span>            :   XempiLoggingSettings loggingSettings;
+<span class="lineNum">      21 </span>            :   Function(XempiConnectionManager)? onConnectionAvailable;
+<span class="lineNum">      22 </span>            :   late XMPPSocket _socket;
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            :   Logger logger = Logger(
+<span class="lineNum">      25 </span>            :     filter: null,
+<span class="lineNum">      26 </span>            :     printer: PrettyPrinter(
+<span class="lineNum">      27 </span>            :       colors: true,
+<span class="lineNum">      28 </span>            :       printEmojis: false,
+<span class="lineNum">      29 </span>            :       dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
+<span class="lineNum">      30 </span>            :     ),
+<span class="lineNum">      31 </span>            :     output: null,
+<span class="lineNum">      32 </span>            :   );
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            :   /// [StreamController] to broadcast all incoming messages through
+<span class="lineNum">      35 </span>            :   /// the open connection.
+<span class="lineNum">      36 </span>            :   StreamController&lt;XmlDocument&gt; inboundMessages =
+<span class="lineNum">      37 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            :   /// [StreamController] to broadcast all outgoing messages through
+<span class="lineNum">      40 </span>            :   /// the open connection.
+<span class="lineNum">      41 </span>            :   StreamController&lt;XmlDocument&gt; outboundMessages =
+<span class="lineNum">      42 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            :   /// [StreamController] to broadcast all incoming 'iq' stanzas through
+<span class="lineNum">      45 </span>            :   /// the open connection.
+<span class="lineNum">      46 </span>            :   StreamController&lt;XmlDocument&gt; inboundIqStanzas =
+<span class="lineNum">      47 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            :   /// [StreamController] to broadcast all outgoing 'iq' stanzas through
+<span class="lineNum">      50 </span>            :   /// the open connection.
+<span class="lineNum">      51 </span>            :   StreamController&lt;XmlDocument&gt; outboundIqStanzas =
+<span class="lineNum">      52 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :   /// [StreamController] to broadcast all incoming 'presence' stanzas through
+<span class="lineNum">      55 </span>            :   /// the open connection.
+<span class="lineNum">      56 </span>            :   StreamController&lt;XmlDocument&gt; inboundPresenceStanzas =
+<span class="lineNum">      57 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span>            :   /// [StreamController] to broadcast all outgoing 'presence' stanzas through
+<span class="lineNum">      60 </span>            :   /// the open connection.
+<span class="lineNum">      61 </span>            :   StreamController&lt;XmlDocument&gt; outboundPresenceStanzas =
+<span class="lineNum">      62 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span>            :   /// [StreamController] to broadcast all incoming 'message' stanzas through
+<span class="lineNum">      65 </span>            :   /// the open connection.
+<span class="lineNum">      66 </span>            :   StreamController&lt;XmlDocument&gt; inboundMessageStanzas =
+<span class="lineNum">      67 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      68 </span>            : 
+<span class="lineNum">      69 </span>            :   /// [StreamController] to broadcast all outgoing 'message' stanzas through
+<span class="lineNum">      70 </span>            :   /// the open connection.
+<span class="lineNum">      71 </span>            :   StreamController&lt;XmlDocument&gt; outboundMessageStanzas =
+<span class="lineNum">      72 </span>            :       StreamController&lt;XmlDocument&gt;.broadcast();
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :   XempiConnectionManager({</span>
+<span class="lineNum">      75 </span>            :     required this.accountSettings,
+<span class="lineNum">      76 </span>            :     required this.connectionSettings,
+<span class="lineNum">      77 </span>            :     this.onConnectionAvailable,
+<span class="lineNum">      78 </span>            :     this.loggingSettings = const XempiLoggingSettings.all(),
+<span class="lineNum">      79 </span>            :   });
+<span class="lineNum">      80 </span>            : 
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :   void connect() async {</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     XMPPSocket socket = XMPPSocket();</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     debugPrint('[Xempi] Connecting to socket...');</span>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span>            :     // TODO: Add specific settings for the web version
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     _socket = await socket.connect(</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :       connectionSettings.host,</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :       connectionSettings.port,</span>
+<span class="lineNum">      89 </span>            :     );
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     inboundMessages.stream.listen(_onInboundMessage);</span>
+<span class="lineNum">      92 </span>            : 
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     inboundPresenceStanzas.stream.listen(_onInboundPressenceStanza);</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     outboundPresenceStanzas.stream.listen(_onOutboundPressenceStanza);</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     inboundMessageStanzas.stream.listen(_onInboundMessageStanza);</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     outboundMessageStanzas.stream.listen(_onOutboundMessageStanza);</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :     inboundIqStanzas.stream.listen(_onInboundIqStanza);</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     outboundIqStanzas.stream.listen(_onOutboundIqStanza);</span>
+<span class="lineNum">      99 </span>            : 
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     socket.listen(</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :       _handleSocketResponse,</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :       onDone: () {</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         debugPrint('Socket done');</span>
+<span class="lineNum">     104 </span>            :       },
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :       onError: (Object error, StackTrace stackTrace) {</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :         debugPrint('On error');</span>
+<span class="lineNum">     107 </span>            :       },
+<span class="lineNum">     108 </span>            :       cancelOnError: false,
+<span class="lineNum">     109 </span>            :     );
+<span class="lineNum">     110 </span>            : 
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :     sendOpeningMessage();</span>
+<span class="lineNum">     112 </span>            :   }
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span>            :   /// Called every time the server sends an XML message through
+<span class="lineNum">     115 </span>            :   /// the current stream.
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :   _onInboundMessage(XmlDocument document) async {</span>
+<span class="lineNum">     117 </span>            :     // Check if document contains an 'iq' XmlElement and adds it to
+<span class="lineNum">     118 </span>            :     // its respective stream.
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'iq') {</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :       inboundIqStanzas.add(document);</span>
+<span class="lineNum">     121 </span>            :     }
+<span class="lineNum">     122 </span>            :     // Check if document contains an 'presence' XmlElement and adds it to
+<span class="lineNum">     123 </span>            :     // its respective stream.
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'presence') {</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :       inboundPresenceStanzas.add(document);</span>
+<span class="lineNum">     126 </span>            :     }
+<span class="lineNum">     127 </span>            :     // Check if document contains an 'message' XmlElement and adds it to
+<span class="lineNum">     128 </span>            :     // its respective stream.
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'message') {</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :       inboundMessageStanzas.add(document);</span>
+<span class="lineNum">     131 </span>            :     }
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span>            :     // Check if it is an opening message
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     XmlElement? streamElement = document.getElement('stream:stream');</span>
+<span class="lineNum">     135 </span>            :     if (streamElement != null) {
+<span class="lineNum">     136 </span>            :       // Check if there are stream:features elements defined
+<span class="lineNum">     137 </span>            :       List&lt;XmlElement&gt; elems =
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :           streamElement.childElements.where((XmlElement e) {</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :         return e.name.toString() == 'stream:features';</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :       }).toList();</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :       if (elems.isNotEmpty) {</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         XmlElement streamFeatures = elems.first;</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :         inboundMessages.add(XmlDocument.parse(streamFeatures.toXmlString()));</span>
+<span class="lineNum">     144 </span>            :       }
+<span class="lineNum">     145 </span>            :     }
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span>            :     // Upgrades socket to secure socket if TLS negotiation is authorized
+<span class="lineNum">     148 </span>            :     // by a &quot;proceed&quot; message.
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'proceed' &amp;&amp;</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :         document.rootElement.getAttribute('xmlns') ==</span>
+<span class="lineNum">     151 </span>            :             'urn:ietf:params:xml:ns:xmpp-tls') {
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :       SecureSocket? secureSocket = await _socket.secure();</span>
+<span class="lineNum">     153 </span>            :       if (secureSocket != null) {
+<span class="lineNum">     154 </span>            :         secureSocket
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :             .cast&lt;List&lt;int&gt;&gt;()</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :             .transform(utf8.decoder)</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :             .listen(_handleSocketResponse);</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :         sendOpeningMessage();</span>
+<span class="lineNum">     159 </span>            :       }
+<span class="lineNum">     160 </span>            :     }
+<span class="lineNum">     161 </span>            : 
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'stream:features') {</span>
+<span class="lineNum">     163 </span>            :       // &lt;response xmlns='urn:ietf:params:xml:ns:xmpp-sasl'&gt;&lt;/response&gt;
+<span class="lineNum">     164 </span>            :       // TODO: Verificar si permite authorization
+<span class="lineNum">     165 </span>            :       // Check all the stream features reported from the server
+<span class="lineNum">     166 </span>            :       // and act accordingly.
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :       document.firstChild!.childElements.toList().forEach((XmlElement element) {</span>
+<span class="lineNum">     168 </span>            :         // If starttls is required, acknowledge and start process
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :         if (element.name.toString() == 'starttls' &amp;&amp;</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :             element.getAttribute('xmlns') ==</span>
+<span class="lineNum">     171 </span>            :                 'urn:ietf:params:xml:ns:xmpp-tls') {
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :           if (element.getElement('required') != null) {</span>
+<span class="lineNum">     173 </span>            :             XmlDocument starttlsResponse =
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :                 XempiMessageHelper.buildStartTlsResponse();</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :             debugPrint(starttlsResponse.toXmlString());</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :             _socket.write(starttlsResponse.toXmlString());</span>
+<span class="lineNum">     177 </span>            :           }
+<span class="lineNum">     178 </span>            :         }
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :         if (element.name.toString() == 'mechanisms') {</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :           XmlDocument doc = XempiMessageHelper.buildSaslPlainAuthMessage(</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :             connectionSettings: connectionSettings,</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :             accountSettings: accountSettings,</span>
+<span class="lineNum">     184 </span>            :           );
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :           writeDocumentToSocket(doc);</span>
+<span class="lineNum">     186 </span>            :         }
+<span class="lineNum">     187 </span>            : 
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         if (element.name.toString() == 'bind') {</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :           XmlDocument iqBindResource = XempiMessageHelper.buildIqBindResource(</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :             connectionSettings: connectionSettings,</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :             accountSettings: accountSettings,</span>
+<span class="lineNum">     192 </span>            :           );
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :           writeDocumentToSocket(iqBindResource);</span>
+<span class="lineNum">     194 </span>            :         }
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :         if (element.name.toString() == 'session') {</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :           XmlDocument iqStartSession = XempiMessageHelper.buildIqStartSession(</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :             connectionSettings: connectionSettings,</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :             accountSettings: accountSettings,</span>
+<span class="lineNum">     200 </span>            :           );
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :           writeDocumentToSocket(iqStartSession);</span>
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :           XmlDocument iqDiscoInfo = XempiMessageHelper.buildIqDiscoInfo(</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :             connectionSettings: connectionSettings,</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :             accountSettings: accountSettings,</span>
+<span class="lineNum">     206 </span>            :           );
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :           writeDocumentToSocket(iqDiscoInfo);</span>
+<span class="lineNum">     208 </span>            : 
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :           onConnectionAvailable?.call(this);</span>
+<span class="lineNum">     210 </span>            :         }
+<span class="lineNum">     211 </span>            :       });
+<span class="lineNum">     212 </span>            :     }
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'success' &amp;&amp;</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :         document.rootElement.getAttribute('xmlns') ==</span>
+<span class="lineNum">     216 </span>            :             'urn:ietf:params:xml:ns:xmpp-sasl') {
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :       debugPrint('Successful Plain SASL Authentication');</span>
+<span class="lineNum">     218 </span>            :       // At this point, the client should send another initial stream header
+<span class="lineNum">     219 </span>            :       // as described per RFC 6120 6.4.6. SASL Success:
+<span class="lineNum">     220 </span>            :       //
+<span class="lineNum">     221 </span>            :       //  Upon receiving the &lt;success/&gt; element, the initiating entity MUST
+<span class="lineNum">     222 </span>            :       //  initiate a new stream over the existing TCP connection by sending a
+<span class="lineNum">     223 </span>            :       //  new initial stream header to the receiving entity (as specified under
+<span class="lineNum">     224 </span>            :       //  Section 4.3.3, the initiating entity MUST NOT send a closing
+<span class="lineNum">     225 </span>            :       //  &lt;/stream&gt; tag before sending the new initial stream header, since the
+<span class="lineNum">     226 </span>            :       //  receiving entity and initiating entity MUST consider the original
+<span class="lineNum">     227 </span>            :       //  stream to be replaced upon success of the SASL negotiation).
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :       sendOpeningMessage();</span>
+<span class="lineNum">     229 </span>            :     }
+<span class="lineNum">     230 </span>            :   }
+<span class="lineNum">     231 </span>            : 
+<span class="lineNum">     232 </span>            :   /// Called everytime the XMPP socket receives
+<span class="lineNum">     233 </span>            :   /// a new message.
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :   void _handleSocketResponse(String data) {</span>
+<span class="lineNum">     235 </span>            :     // If the server closes the connection, a &quot;&lt;/stream:stream&gt;&quot;
+<span class="lineNum">     236 </span>            :     // closing tag is received through the socket.
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     if (data == '&lt;/stream:stream&gt;') {</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :       debugPrint('Connection ended');</span>
+<span class="lineNum">     239 </span>            :       return;
+<span class="lineNum">     240 </span>            :     }
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span>            :     // Checks if the message closes the stream but also includes another message.
+<span class="lineNum">     243 </span>            :     // The &lt;/stream:stream&gt; is received when the server closes the XML
+<span class="lineNum">     244 </span>            :     // message stream, usually in case of an error.
+<span class="lineNum">     245 </span>            :     // This function removes the trailing &lt;/stream:stream&gt; so it can be
+<span class="lineNum">     246 </span>            :     // properly parsed.
+<span class="lineNum">     247 </span>            :     // It is important to handle errors or interruptions here anyway.
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :     if (data.endsWith('&lt;/stream:stream&gt;')) {</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :       data = data.substring(0, data.length - 16);</span>
+<span class="lineNum">     250 </span>            :       // TODO: Handle XMPP errors reported by the server here ↯
+<span class="lineNum">     251 </span>            :       // Or maybe they should be managed in the inbound messages callback?
+<span class="lineNum">     252 </span>            :     }
+<span class="lineNum">     253 </span>            : 
+<span class="lineNum">     254 </span>            :     // Adds &lt;/stream:stream&gt; at the end of the initial message so it can be
+<span class="lineNum">     255 </span>            :     // properly parsed. This is only added to make the XML element parseable
+<span class="lineNum">     256 </span>            :     // but is not part of the protocol. The proper way to send the
+<span class="lineNum">     257 </span>            :     // &lt;/stream:stream&gt; element is at the end of the connection to close
+<span class="lineNum">     258 </span>            :     // the stream.
+<span class="lineNum">     259 </span>            :     // Check RFC3921 3. Session Establishment for reference.
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :     if (data.startsWith('&lt;stream:stream') ||</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :         data.startsWith('&lt;?xml version=\'1.0\'?&gt;&lt;stream:stream')) {</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :       data += '&lt;/stream:stream&gt;';</span>
+<span class="lineNum">     263 </span>            :     }
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     XmlDocument document = XmlDocument.parse(data);</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :     inboundMessages.add(document);</span>
+<span class="lineNum">     267 </span>            :   }
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :   writeDocumentToSocket(XmlDocument document) {</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     outboundMessages.add(document);</span>
+<span class="lineNum">     271 </span>            : 
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'iq') {</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :       outboundIqStanzas.add(document);</span>
+<span class="lineNum">     274 </span>            :     }
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'presence') {</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :       outboundPresenceStanzas.add(document);</span>
+<span class="lineNum">     277 </span>            :     }
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == 'message') {</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :       outboundMessageStanzas.add(document);</span>
+<span class="lineNum">     280 </span>            :     }
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :     _socket.write(document.toXmlString());</span>
+<span class="lineNum">     282 </span>            :   }
+<span class="lineNum">     283 </span>            : 
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :   writeStringToSocket(String document) {</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     debugPrint('[Xempi] String written to server:');</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     debugPrint(document);</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     _socket.write(document);</span>
+<span class="lineNum">     288 </span>            :   }
+<span class="lineNum">     289 </span>            : 
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :   sendOpeningMessage() {</span>
+<span class="lineNum">     291 </span>            :     if (kIsWeb) {
+<span class="lineNum">     292 </span>            :       XmlDocument websocketOpening =
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :           XempiMessageHelper.buildWebsocketOpeningMessage(</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         connectionSettings: connectionSettings,</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         accountSettings: accountSettings,</span>
+<span class="lineNum">     296 </span>            :       );
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :       writeDocumentToSocket(websocketOpening);</span>
+<span class="lineNum">     298 </span>            :     } else {
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :       XmlDocument document = XempiMessageHelper.buildOpeningMessage(</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :         connectionSettings: connectionSettings,</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :         accountSettings: accountSettings,</span>
+<span class="lineNum">     302 </span>            :       );
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :       String message = document.toXmlString(</span>
+<span class="lineNum">     304 </span>            :         pretty: true,
+<span class="lineNum">     305 </span>            :       );
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span>            :       // Remove closing trailing message &quot;\&quot; so the XML stream stays open
+<span class="lineNum">     308 </span>            :       // Check RFC3921 3. Session Establishment for reference.
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :       int positionToDelete = message.length - 2;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :       message = message.substring(0, positionToDelete) +</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :           message.substring(positionToDelete + 1);</span>
+<span class="lineNum">     312 </span>            : 
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :       writeStringToSocket(message);</span>
+<span class="lineNum">     314 </span>            :     }
+<span class="lineNum">     315 </span>            :   }
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span>            :   /// Sends an 'iq' [XmlDocument] that can be awaited by subscribing to the
+<span class="lineNum">     318 </span>            :   /// [inboundIqStanzas] stream and checking if a response with the same
+<span class="lineNum">     319 </span>            :   /// id has been received.
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :   Future&lt;XmlDocument&gt; sendAwaitableIq(XmlDocument document) async {</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :     XmlElement root = document.rootElement;</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     String name = root.name.toString();</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     if (name != 'iq') {</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :       throw ArgumentError('XmlDocument must contain an \'iq\' element.');</span>
+<span class="lineNum">     325 </span>            :     }
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :     String? requestId = root.getAttribute('id');</span>
+<span class="lineNum">     327 </span>            :     if (requestId == null) {
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :       throw ArgumentError('XmlDocument root must contain an \'id\' attribute.');</span>
+<span class="lineNum">     329 </span>            :     }
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     writeDocumentToSocket(document);</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     await for (final XmlDocument xmlDocument in inboundIqStanzas.stream) {</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :       String? responseId = xmlDocument.rootElement.getAttribute('id');</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :       if (requestId == responseId) {</span>
+<span class="lineNum">     334 </span>            :         return xmlDocument;
+<span class="lineNum">     335 </span>            :       }
+<span class="lineNum">     336 </span>            :     }
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :     throw TimeoutException('An adequate iq response could not be received');</span>
+<span class="lineNum">     338 </span>            :   }
+<span class="lineNum">     339 </span>            : 
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :   void _onInboundPressenceStanza(XmlDocument document) {</span>
+<span class="lineNum">     341 </span>            :     const String name = 'presence';
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == name) {</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :       if (loggingSettings.inboundPresenceStanzas) {</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :         logMessage(document, header: '[➡️ Inbound presence Stanza]');</span>
+<span class="lineNum">     345 </span>            :       }
+<span class="lineNum">     346 </span>            :     }
+<span class="lineNum">     347 </span>            :   }
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :   void _onOutboundPressenceStanza(XmlDocument document) {</span>
+<span class="lineNum">     350 </span>            :     const String name = 'presence';
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == name) {</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :       if (loggingSettings.outboundPresenceStanzas) {</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :         logMessage(document, header: '[⬅️ Outbound presence Stanza]');</span>
+<span class="lineNum">     354 </span>            :       }
+<span class="lineNum">     355 </span>            :     }
+<span class="lineNum">     356 </span>            :   }
+<span class="lineNum">     357 </span>            : 
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :   void _onInboundMessageStanza(XmlDocument document) {</span>
+<span class="lineNum">     359 </span>            :     const String name = 'message';
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == name) {</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :       if (loggingSettings.inboundMessageStanzas) {</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :         logMessage(document, header: '[➡️ Inbound message Stanza]');</span>
+<span class="lineNum">     363 </span>            :       }
+<span class="lineNum">     364 </span>            :     }
+<span class="lineNum">     365 </span>            :   }
+<span class="lineNum">     366 </span>            : 
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :   void _onOutboundMessageStanza(XmlDocument document) {</span>
+<span class="lineNum">     368 </span>            :     const String name = 'message';
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == name) {</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :       if (loggingSettings.outboundMessageStanzas) {</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :         logMessage(document, header: '[⬅️ Outbound message Stanza]');</span>
+<span class="lineNum">     372 </span>            :       }
+<span class="lineNum">     373 </span>            :     }
+<span class="lineNum">     374 </span>            :   }
+<span class="lineNum">     375 </span>            : 
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :   void _onInboundIqStanza(XmlDocument document) {</span>
+<span class="lineNum">     377 </span>            :     const String name = 'iq';
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == name) {</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :       if (loggingSettings.inboundIqStanzas) {</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :         logMessage(document, header: '[➡️ Inbound iq Stanza]');</span>
+<span class="lineNum">     381 </span>            :       }
+<span class="lineNum">     382 </span>            :     }
+<span class="lineNum">     383 </span>            :   }
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :   void _onOutboundIqStanza(XmlDocument document) {</span>
+<span class="lineNum">     386 </span>            :     const String name = 'iq';
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :     if (document.rootElement.name.toString() == name) {</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :       if (loggingSettings.outboundIqStanzas) {</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :         logMessage(document, header: '[⬅️ Outbound iq Stanza]');</span>
+<span class="lineNum">     390 </span>            :       }
+<span class="lineNum">     391 </span>            :     }
+<span class="lineNum">     392 </span>            :   }
+<span class="lineNum">     393 </span>            : 
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :   void logMessage(XmlDocument document, {String header = ''}) {</span>
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :     String message = document.toXmlString(pretty: true);</span>
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :     if (header.isNotEmpty) {</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :       message = '$header\n$message';</span>
+<span class="lineNum">     398 </span>            :     }
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :     logger.d(message);</span>
+<span class="lineNum">     400 </span>            :   }
+<span class="lineNum">     401 </span>            : }
+<span class="lineNum">     402 </span>            : 
+<span class="lineNum">     403 </span>            : // TODO: Add callbacks for the different listeners
+<span class="lineNum">     404 </span>            : // TODO: Call logMessage in the listeners according to the loggingSettings
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

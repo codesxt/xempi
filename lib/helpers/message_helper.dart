@@ -4,7 +4,23 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 import 'package:xempi/xempi.dart';
 
+part 'core.dart';
+part 'chat_states.dart';
+part 'message_retraction.dart';
+
 class XempiMessageHelper {
+  XempiMessageHelper._();
+
+  // External libraries to implement specific messages.
+  static XempiCoreHelper core = const XempiCoreHelper();
+  static XempiChatStatesHelper chatStates = const XempiChatStatesHelper();
+  static XempiMessageRetractionHelper messageRetraction =
+      const XempiMessageRetractionHelper();
+
+  // Getters to use as aliases for the implemented XEPs.
+  static XempiChatStatesHelper get xep0085 => chatStates;
+  static XempiMessageRetractionHelper get xep0424 => messageRetraction;
+
   static XmlDocument buildOpeningMessage({
     required XempiConnectionSettings connectionSettings,
     required XempiAccountSettings accountSettings,
@@ -270,101 +286,6 @@ class XempiMessageHelper {
     return document;
   }
 
-  static XmlDocument buildChatStatesActiveMessage({
-    required XempiConnectionSettings connectionSettings,
-    required XempiAccountSettings accountSettings,
-    required XempiJid to,
-  }) {
-    final builder = XmlBuilder();
-    builder.element('message', attributes: {
-      'from': accountSettings.jid.toString(),
-      'to': to.toString(),
-      'type': 'chat',
-    }, nest: () {
-      builder.element('active', attributes: {
-        'xmlns': 'http://jabber.org/protocol/chatstates',
-      });
-    });
-    XmlDocument document = builder.buildDocument();
-    return document;
-  }
-
-  static XmlDocument buildChatStatesComposingMessage({
-    required XempiConnectionSettings connectionSettings,
-    required XempiAccountSettings accountSettings,
-    required XempiJid to,
-  }) {
-    final builder = XmlBuilder();
-    builder.element('message', attributes: {
-      'from': accountSettings.jid.toString(),
-      'to': to.toString(),
-      'type': 'chat',
-    }, nest: () {
-      builder.element('composing', attributes: {
-        'xmlns': 'http://jabber.org/protocol/chatstates',
-      });
-    });
-    XmlDocument document = builder.buildDocument();
-    return document;
-  }
-
-  static XmlDocument buildChatStatesPausedMessage({
-    required XempiConnectionSettings connectionSettings,
-    required XempiAccountSettings accountSettings,
-    required XempiJid to,
-  }) {
-    final builder = XmlBuilder();
-    builder.element('message', attributes: {
-      'from': accountSettings.jid.toString(),
-      'to': to.toString(),
-      'type': 'chat',
-    }, nest: () {
-      builder.element('paused', attributes: {
-        'xmlns': 'http://jabber.org/protocol/chatstates',
-      });
-    });
-    XmlDocument document = builder.buildDocument();
-    return document;
-  }
-
-  static XmlDocument buildChatStatesInactiveMessage({
-    required XempiConnectionSettings connectionSettings,
-    required XempiAccountSettings accountSettings,
-    required XempiJid to,
-  }) {
-    final builder = XmlBuilder();
-    builder.element('message', attributes: {
-      'from': accountSettings.jid.toString(),
-      'to': to.toString(),
-      'type': 'chat',
-    }, nest: () {
-      builder.element('inactive', attributes: {
-        'xmlns': 'http://jabber.org/protocol/chatstates',
-      });
-    });
-    XmlDocument document = builder.buildDocument();
-    return document;
-  }
-
-  static XmlDocument buildChatStatesGoneMessage({
-    required XempiConnectionSettings connectionSettings,
-    required XempiAccountSettings accountSettings,
-    required XempiJid to,
-  }) {
-    final builder = XmlBuilder();
-    builder.element('message', attributes: {
-      'from': accountSettings.jid.toString(),
-      'to': to.toString(),
-      'type': 'chat',
-    }, nest: () {
-      builder.element('gone', attributes: {
-        'xmlns': 'http://jabber.org/protocol/chatstates',
-      });
-    });
-    XmlDocument document = builder.buildDocument();
-    return document;
-  }
-
   static XmlDocument buildBasicChatMessage({
     required XempiConnectionSettings connectionSettings,
     required XempiAccountSettings accountSettings,
@@ -380,6 +301,79 @@ class XempiMessageHelper {
       builder.element('body', nest: () {
         builder.text(body);
       });
+    });
+    XmlDocument document = builder.buildDocument();
+    return document;
+  }
+
+  static XmlDocument buildBasicChatMessageWithOriginId({
+    required XempiConnectionSettings connectionSettings,
+    required XempiAccountSettings accountSettings,
+    required XempiJid to,
+    required String body,
+  }) {
+    Uuid uuid = const Uuid();
+    String originId = uuid.v4();
+
+    final builder = XmlBuilder();
+    builder.element('message', attributes: {
+      'from': accountSettings.jid.toString(),
+      'to': to.toString(),
+      'type': 'chat',
+      'id': originId,
+    }, nest: () {
+      builder.element('body', nest: () {
+        builder.text(body);
+      });
+      builder.element(
+        'origin-id',
+        attributes: {
+          'xmlns': 'urn:xmpp:sid:0',
+          'id': originId,
+        },
+      );
+    });
+    XmlDocument document = builder.buildDocument();
+    return document;
+  }
+
+  static XmlDocument buildMessageRetractionMessage({
+    required XempiConnectionSettings connectionSettings,
+    required XempiAccountSettings accountSettings,
+    required XempiJid to,
+    required String id,
+    bool store = false,
+  }) {
+    Uuid uuid = const Uuid();
+    String originId = uuid.v4();
+
+    final builder = XmlBuilder();
+    builder.element('message', attributes: {
+      'from': accountSettings.jid.toString(), // Optional
+      'to': to.toString(), // Required
+      'type': 'chat',
+      'id': originId,
+    }, nest: () {
+      builder.element(
+        'retract',
+        attributes: {
+          'xmlns': 'urn:xmpp:message-retract:1',
+          'id': id,
+        },
+      );
+      builder.element('fallback', attributes: {
+        'xmlns': 'urn:xmpp:fallback:0',
+        'for': 'urn:xmpp:message-retract:1'
+      });
+      builder.element('body', nest: () {
+        builder.text(
+          'This person attempted to retract a previous '
+          'message, but it\'s unsupported by your client.',
+        );
+      });
+      if (store == true) {
+        builder.element('store', attributes: {'xmlns': 'urn:xmpp:hints'});
+      }
     });
     XmlDocument document = builder.buildDocument();
     return document;

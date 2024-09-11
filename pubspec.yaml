@@ -1,6 +1,6 @@
 name: xempi
 description: "A simple plugin to manage XMPP connections based on pure XML Documents"
-version: 0.0.1
+version: 0.0.2
 homepage:
 
 environment:
@@ -15,6 +15,7 @@ dependencies:
   xml: ^6.5.0
   universal_io: ^2.2.2
   uuid: ^4.4.2
+  logger: ^2.4.0
 
 dev_dependencies:
   flutter_test:

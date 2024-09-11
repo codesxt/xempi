@@ -61,6 +61,16 @@ class XempiJid {
     return representation;
   }
 
+  /// Prints a "Bare JID" [String] representation (only local and domain parts).
+  String toBareJidString() {
+    String representation = '';
+    if (localPart.isNotEmpty) {
+      representation += '$localPart@';
+    }
+    representation += domainPart;
+    return representation;
+  }
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
@@ -74,4 +84,58 @@ class XempiJid {
   @override
   int get hashCode =>
       localPart.hashCode ^ domainPart.hashCode ^ resourcePart.hashCode;
+
+  /// Parses a string into a `XempiJid` object.
+  /// Throws an error if the string is not a valid JID (missing domain part).
+  factory XempiJid.parse(String jidString) {
+    return XempiJidParser.parse(jidString);
+  }
+}
+
+class XempiJidParser {
+  static XempiJid parse(String jidString) {
+    // Handle cases without local part (@)
+    if (!jidString.contains('@')) {
+      final parts = jidString.split('/');
+      String resourcePart = parts.length > 1 ? parts[1] : '';
+      _validateResourcePart(resourcePart);
+      return XempiJid(
+        localPart: '',
+        domainPart: parts[0],
+        resourcePart: resourcePart,
+      );
+    } else {
+      // Handle cases with local part (@)
+      final parts = jidString.split('@');
+      if (parts.length < 2) {
+        throw ArgumentError('Invalid JID: Missing domain part.');
+      }
+      final domainPart = parts[1];
+      final localPart = parts[0];
+      final resourcePart = domainPart.split('/').length > 1
+          ? domainPart.split('/').sublist(1).join('/')
+          : '';
+      _validateResourcePart(resourcePart);
+      return XempiJid(
+        localPart: localPart,
+        domainPart: domainPart.split('/')[0],
+        resourcePart: resourcePart,
+      );
+    }
+  }
+
+  static bool _validateResourcePart(String resourcePart) {
+    // Check if resource part is valid
+    if (resourcePart.isNotEmpty) {
+      // Check if the resource part is valid based on XMPP rules
+      if (resourcePart.length > 256 ||
+          resourcePart.contains(RegExp(r'[\x00-\x1F\xFFFE\xFFFF]')) ||
+          resourcePart.contains(RegExp(r'[^\x20-\uD7FF\uE000-\uFFFF]')) ||
+          resourcePart.isEmpty) {
+        throw ArgumentError(
+            'Invalid JID: Resource part is invalid according to XMPP rules.');
+      }
+    }
+    return true;
+  }
 }
